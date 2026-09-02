@@ -4,6 +4,8 @@ I used ChatGPT/Codex during implementation for:
 
 - Translating the assignment into a small Rust/Axum/PostgreSQL architecture.
 - Drafting handler and SQL boilerplate, then compiling and correcting it locally.
+- Refactoring the original single-file prototype into a small
+  controllers/services/models layout while keeping the behavior unchanged.
 - Reviewing idempotency, row-locking, PSP timeout handling, HMAC signing, and
   Docker Compose setup.
 - Drafting the initial documentation and focused integration-test structure.
@@ -21,8 +23,11 @@ Three decisions I made independently:
    status lookup. This is the smallest way to demonstrate the crash-after-PSP-
    success case without claiming a real PSP call can be rolled back.
 
-One thing AI got wrong and I corrected: an early idempotency design hashed only
-the request body. That would allow the same key and body to be reused against a
-different invoice. I changed the fingerprint to include the HTTP method, the
-invoice path, and the canonical body, and verified the behavior in the payment
-handler and its documentation.
+Things AI got wrong and I corrected during verification: an early idempotency
+design hashed only the request body, so the same key and body could be reused
+against a different invoice. I changed the fingerprint to include the HTTP
+method, invoice path, and canonical body. A live smoke test also caught that I
+was inserting the idempotency row before its referenced payment-attempt row;
+I reversed those inserts inside the same transaction to satisfy the foreign
+key. Finally, timeout reconciliation was initially polling a still-processing
+PSP charge too slowly, so processing checks now run every five seconds.

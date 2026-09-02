@@ -20,6 +20,27 @@ dodo_test_dev_secret_change_me
 
 Use it as `Authorization: Bearer <key>`. All money values are integer cents.
 
+## Code structure
+
+The application follows a small REST-friendly MVC layout:
+
+```text
+src/
+├── main.rs          process entry point
+├── app.rs           configuration, startup, and Axum routes
+├── auth.rs          API-key authentication
+├── models.rs        request, response, and database data shapes
+├── controllers/     HTTP input validation and response handling
+├── services/        payment, recovery, and webhook business logic
+├── state.rs         shared database and HTTP clients
+├── error.rs         consistent API errors
+└── mock_psp.rs      separate mock payment provider
+```
+
+In a JSON API there are no HTML templates, so the serialized response models
+are the view layer. Controllers stay thin, while services contain workflows
+that span database transactions or external calls.
+
 ## Curl walkthrough
 
 Create a customer:

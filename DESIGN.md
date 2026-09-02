@@ -15,7 +15,7 @@ Client -> Invoice API -> PostgreSQL
 PostgreSQL outbox -> worker -> registered webhook endpoint
 ```
 
-The implementation will be Rust with Axum, SQLx migrations, PostgreSQL, and
+The implementation uses Rust with Axum, SQLx migrations, PostgreSQL, and
 Docker Compose. The compose environment seeds one development business and
 one API key so `docker compose up` requires no manual provisioning.
 
@@ -66,8 +66,8 @@ cannot silently transition a paid invoice.
 `POST /invoices/{id}/pay` requires an `Idempotency-Key`. The HTTP method,
 invoice path, and canonicalized request body are SHA-256 hashed together. In a
 short transaction, the service locks
-the invoice with `SELECT ... FOR UPDATE`, creates the idempotency record and a
-`pending` payment attempt, then commits before making the HTTP call. The PSP
+the invoice with `SELECT ... FOR UPDATE`, creates a `pending` payment attempt
+and its idempotency record, then commits before making the HTTP call. The PSP
 idempotency reference is the stable payment-attempt UUID.
 
 The short lock prevents concurrent setup races. Once it is released, the

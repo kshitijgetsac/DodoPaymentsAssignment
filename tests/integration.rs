@@ -16,9 +16,38 @@ fn config() -> (Client, String, String) {
 }
 
 async fn fixture(client: &Client, base: &str, key: &str) -> (Uuid, Uuid) {
-    let customer: Value = client.post(format!("{base}/customers")).bearer_auth(key).json(&json!({"name":"Integration Customer","email":format!("{}@example.com", Uuid::new_v4())})).send().await.unwrap().json().await.unwrap();
+    let customer: Value = client
+        .post(format!("{base}/customers"))
+        .bearer_auth(key)
+        .json(&json!({
+            "name": "Integration Customer",
+            "email": format!("{}@example.com", Uuid::new_v4())
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let customer_id = Uuid::parse_str(customer["id"].as_str().unwrap()).unwrap();
-    let invoice: Value = client.post(format!("{base}/invoices")).bearer_auth(key).json(&json!({"customer_id":customer_id,"due_date":"2030-01-31","line_items":[{"description":"Test","quantity":1,"unit_amount_cents":100}]})).send().await.unwrap().json().await.unwrap();
+    let invoice: Value = client
+        .post(format!("{base}/invoices"))
+        .bearer_auth(key)
+        .json(&json!({
+            "customer_id": customer_id,
+            "due_date": "2030-01-31",
+            "line_items": [{
+                "description": "Test",
+                "quantity": 1,
+                "unit_amount_cents": 100
+            }]
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     (
         customer_id,
         Uuid::parse_str(invoice["id"].as_str().unwrap()).unwrap(),
@@ -66,6 +95,9 @@ async fn concurrent_payment_has_one_attempt() {
         .unwrap();
     assert_eq!(invoice["status"], "paid");
     assert_eq!(invoice["payment_attempts"].as_array().unwrap().len(), 1);
+
+    let attempt_id = invoice["payment_attempts"][0]["id"].as_str().unwrap();
+    assert_eq!(psp_create_calls(&client, attempt_id).await, 1);
 }
 
 #[tokio::test]
@@ -84,6 +116,7 @@ async fn idempotent_retry_replays_without_second_attempt() {
         .unwrap();
     let first_status = first.status();
     let first_body = first.text().await.unwrap();
+    let first_json: Value = serde_json::from_str(&first_body).unwrap();
     let second = client
         .post(format!("{base}/invoices/{invoice_id}/pay"))
         .bearer_auth(&key)
@@ -94,6 +127,9 @@ async fn idempotent_retry_replays_without_second_attempt() {
         .unwrap();
     assert_eq!(second.status(), first_status);
     assert_eq!(second.text().await.unwrap(), first_body);
+
+    let attempt_id = first_json["payment_attempt_id"].as_str().unwrap();
+    assert_eq!(psp_create_calls(&client, attempt_id).await, 1);
 }
 
 #[tokio::test]
@@ -126,4 +162,17 @@ async fn timeout_is_accepted_then_reconciled() {
         }
     }
     panic!("timeout payment was not reconciled");
+}
+
+async fn psp_create_calls(client: &Client, attempt_id: &str) -> u64 {
+    let psp_url = env::var("TEST_PSP_URL").unwrap_or_else(|_| "http://localhost:8081".into());
+    let response: Value = client
+        .get(format!("{psp_url}/_test/charges/{attempt_id}/call-count"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    response["calls"].as_u64().unwrap()
 }
