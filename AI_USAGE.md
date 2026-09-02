@@ -30,4 +30,7 @@ method, invoice path, and canonical body. A live smoke test also caught that I
 was inserting the idempotency row before its referenced payment-attempt row;
 I reversed those inserts inside the same transaction to satisfy the foreign
 key. Finally, timeout reconciliation was initially polling a still-processing
-PSP charge too slowly, so processing checks now run every five seconds.
+PSP charge too slowly, so processing checks now run every five seconds. A later
+review found that the same business-wide idempotency key could race across two
+different invoices and that recovery rows were not leased across replicas; I
+added a conflict path and `SKIP LOCKED` recovery leases, then tested the race.

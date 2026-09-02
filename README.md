@@ -60,6 +60,17 @@ INVOICE_ID=$(curl -sS -X POST http://localhost:8080/invoices \
   -d "{\"customer_id\":\"$CUSTOMER_ID\",\"due_date\":\"2030-01-31\",\"line_items\":[{\"description\":\"Website work\",\"quantity\":2,\"unit_amount_cents\":50000},{\"description\":\"Hosting\",\"quantity\":1,\"unit_amount_cents\":2000}]}" | jq -r .id)
 ```
 
+To see webhook delivery during the demo, create a temporary receiver URL at
+webhook.site, set it below, and register it. The signing secret is shown only
+in this response:
+
+```bash
+WEBHOOK_URL=https://webhook.site/replace-with-your-id
+curl -sS -X POST http://localhost:8080/webhook-endpoints \
+  -H "Authorization: Bearer $API_KEY" -H 'content-type: application/json' \
+  -d "{\"url\":\"$WEBHOOK_URL\"}" | jq
+```
+
 Successful payment (`tok_success`):
 
 ```bash
@@ -81,6 +92,13 @@ For a timeout demo, use `tok_timeout`. The API returns `202` quickly, and the
 background worker reconciles the PSP result after about 30 seconds. Inspect
 the eventual state with `GET /invoices/{id}`.
 
+After creating or paying an invoice, inspect delivery status with:
+
+```bash
+curl -sS http://localhost:8080/webhook-events \
+  -H "Authorization: Bearer $API_KEY" | jq
+```
+
 ## Tests
 
 The focused integration tests run against a live Compose stack and are marked
@@ -92,8 +110,8 @@ DODO_API_KEY=dodo_test_dev_secret_change_me \
 cargo test --test integration -- --ignored --nocapture
 ```
 
-They cover concurrent payment attempts, idempotent replay without another PSP
-call, and PSP timeout reconciliation.
+They cover concurrent payment attempts, exact idempotent replay without another
+PSP call, cross-invoice key races, and PSP timeout reconciliation.
 
 ## Documentation
 

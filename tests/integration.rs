@@ -133,6 +133,42 @@ async fn idempotent_retry_replays_without_second_attempt() {
 }
 
 #[tokio::test]
+#[ignore = "requires docker compose up"]
+async fn same_idempotency_key_on_different_invoices_returns_conflict() {
+    let (client, base, key) = config();
+    let (_, first_invoice_id) = fixture(&client, &base, &key).await;
+    let (_, second_invoice_id) = fixture(&client, &base, &key).await;
+    let idempotency_key = format!("cross-invoice-{}", Uuid::new_v4());
+
+    let first_request = client
+        .post(format!("{base}/invoices/{first_invoice_id}/pay"))
+        .bearer_auth(&key)
+        .header("Idempotency-Key", &idempotency_key)
+        .json(&json!({"card_token": "tok_success"}))
+        .send();
+    let second_request = client
+        .post(format!("{base}/invoices/{second_invoice_id}/pay"))
+        .bearer_auth(&key)
+        .header("Idempotency-Key", &idempotency_key)
+        .json(&json!({"card_token": "tok_success"}))
+        .send();
+
+    let (first_response, second_response) = tokio::join!(first_request, second_request);
+    let statuses = [
+        first_response.unwrap().status(),
+        second_response.unwrap().status(),
+    ];
+    assert!(statuses.contains(&StatusCode::OK));
+    assert!(statuses.contains(&StatusCode::CONFLICT));
+
+    let first_invoice = get_invoice(&client, &base, &key, first_invoice_id).await;
+    let second_invoice = get_invoice(&client, &base, &key, second_invoice_id).await;
+    let total_attempts = first_invoice["payment_attempts"].as_array().unwrap().len()
+        + second_invoice["payment_attempts"].as_array().unwrap().len();
+    assert_eq!(total_attempts, 1);
+}
+
+#[tokio::test]
 #[ignore = "requires docker compose up; takes about 30 seconds"]
 async fn timeout_is_accepted_then_reconciled() {
     let (client, base, key) = config();
@@ -162,6 +198,18 @@ async fn timeout_is_accepted_then_reconciled() {
         }
     }
     panic!("timeout payment was not reconciled");
+}
+
+async fn get_invoice(client: &Client, base: &str, key: &str, invoice_id: Uuid) -> Value {
+    client
+        .get(format!("{base}/invoices/{invoice_id}"))
+        .bearer_auth(key)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap()
 }
 
 async fn psp_create_calls(client: &Client, attempt_id: &str) -> u64 {

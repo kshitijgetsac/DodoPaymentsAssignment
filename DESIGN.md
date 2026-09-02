@@ -2,7 +2,7 @@
 
 ## Scope and architecture
 
-This is a small billing backend, not a card processor. A business uses an API
+This is a billing backend, not a card processor. A business uses an API
 key to create customers and invoices. A customer payment creates a payment
 attempt and is sent over HTTP to a separate mock PSP service. PostgreSQL is the
 source of truth for the billing service. A database-backed worker delivers
@@ -64,7 +64,7 @@ cannot silently transition a paid invoice.
 ## 3. Payment correctness and failure modes
 
 `POST /invoices/{id}/pay` requires an `Idempotency-Key`. The HTTP method,
-invoice path, and canonicalized request body are SHA-256 hashed together. In a
+invoice path, and struct-serialized request body are SHA-256 hashed together. In a
 short transaction, the service locks
 the invoice with `SELECT ... FOR UPDATE`, creates a `pending` payment attempt
 and its idempotency record, then commits before making the HTTP call. The PSP
@@ -83,16 +83,17 @@ it does not exhaust database connections or make a PSP outage lock invoices.
 - **`tok_timeout`:** the API's PSP deadline is two seconds, so the caller gets
   `202` promptly and the invoice remains `open` with a pending attempt. The
   mock PSP records a processing charge under the stable reference and completes
-  it at about 30 seconds. A recovery worker polls its status and applies the
-  eventual result. The caller can retrieve the invoice/payment attempt or retry
-  the same idempotency key.
+  it at about 30 seconds. Workers lease due attempts with `SKIP LOCKED`, poll
+  status, and apply the result. The caller can retrieve the invoice/payment
+  attempt or retry the same idempotency key.
 - **PSP succeeds, then the service crashes before persisting:** recovery asks
   the PSP for the stable reference. The mock PSP returns the prior successful
   result rather than creating a new charge, after which the service marks the
   attempt succeeded and invoice paid. This PSP-level idempotency is essential;
   a database lock alone cannot protect the external side effect.
-- **A key is reused with a different body:** the stored hash differs, so the
-  service returns HTTP 409 `idempotency_key_reused`; it never repurposes a key.
+- **A key is reused for a different request:** including a concurrent request
+  for another invoice, the stored hash differs and the service returns HTTP 409
+  `idempotency_key_reused`; it never repurposes a key.
 - **Paying a paid invoice:** return HTTP 409 `invoice_not_payable` without
   creating an attempt or calling the PSP.
 

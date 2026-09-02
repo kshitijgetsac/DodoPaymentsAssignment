@@ -121,18 +121,44 @@ pub async fn pay_invoice(
     .await
     .map_err(ApiError::db)?;
 
-    sqlx::query(
+    let insert_result = sqlx::query(
         "INSERT INTO idempotency_keys \
             (business_id, key, request_hash, state, payment_attempt_id) \
          VALUES ($1, $2, $3, 'processing', $4)",
     )
     .bind(business_id)
     .bind(idempotency_key)
-    .bind(request_hash)
+    .bind(&request_hash)
     .bind(attempt_id)
     .execute(&mut *tx)
-    .await
-    .map_err(ApiError::db)?;
+    .await;
+
+    if let Err(error) = insert_result {
+        if !is_unique_violation(&error) {
+            return Err(ApiError::db(error));
+        }
+
+        // A business-wide key can race across two different invoice rows.
+        // Roll back our attempt, then return the winner's result or a clear
+        // conflict if the same key represented a different request.
+        tx.rollback().await.map_err(ApiError::db)?;
+        let record = find_idempotency_record(&state.db, business_id, idempotency_key)
+            .await?
+            .ok_or_else(|| {
+                ApiError::Internal(anyhow::anyhow!(
+                    "idempotency record missing after unique-key conflict"
+                ))
+            })?;
+
+        if record.request_hash != request_hash {
+            return Err(ApiError::client(
+                StatusCode::CONFLICT,
+                "idempotency_key_reused",
+                "key was used with a different request",
+            ));
+        }
+        return Ok(response_from_idempotency_record(record));
+    }
 
     tx.commit().await.map_err(ApiError::db)?;
 
@@ -287,13 +313,7 @@ async fn finalize_payment(
 
 pub async fn recovery_worker(state: AppState) {
     loop {
-        let attempts = sqlx::query_as::<_, PendingAttempt>(
-            "SELECT id, recovery_attempts FROM payment_attempts \
-             WHERE status = 'pending' AND next_retry_at <= now() \
-             ORDER BY next_retry_at LIMIT 20",
-        )
-        .fetch_all(&state.db)
-        .await;
+        let attempts = claim_pending_attempts(&state).await;
 
         match attempts {
             Ok(attempts) => {
@@ -306,6 +326,25 @@ pub async fn recovery_worker(state: AppState) {
 
         sleep(Duration::from_secs(2)).await;
     }
+}
+
+async fn claim_pending_attempts(state: &AppState) -> Result<Vec<PendingAttempt>, sqlx::Error> {
+    // Moving next_retry_at forward acts as a short lease. SKIP LOCKED keeps
+    // multiple API replicas from claiming the same rows at the same time.
+    sqlx::query_as::<_, PendingAttempt>(
+        "WITH due AS ( \
+             SELECT id FROM payment_attempts \
+             WHERE status = 'pending' AND next_retry_at <= now() \
+             ORDER BY next_retry_at \
+             LIMIT 20 FOR UPDATE SKIP LOCKED \
+         ) \
+         UPDATE payment_attempts pa \
+         SET next_retry_at = now() + interval '60 seconds' \
+         FROM due WHERE pa.id = due.id \
+         RETURNING pa.id, pa.recovery_attempts",
+    )
+    .fetch_all(&state.db)
+    .await
 }
 
 async fn recover_attempt(state: &AppState, attempt: PendingAttempt) {
@@ -384,6 +423,30 @@ fn hash_payment_request(invoice_id: Uuid, input: &PayInput) -> Result<String, Ap
     hasher.update(format!("POST:/invoices/{invoice_id}/pay:"));
     hasher.update(serde_json::to_vec(input).map_err(|error| ApiError::Internal(error.into()))?);
     Ok(hex::encode(hasher.finalize()))
+}
+
+async fn find_idempotency_record(
+    db: &sqlx::PgPool,
+    business_id: Uuid,
+    key: &str,
+) -> Result<Option<IdempotencyRecord>, ApiError> {
+    sqlx::query_as::<_, IdempotencyRecord>(
+        "SELECT request_hash, state, payment_attempt_id, response_status, response_body \
+         FROM idempotency_keys WHERE business_id = $1 AND key = $2",
+    )
+    .bind(business_id)
+    .bind(key)
+    .fetch_optional(db)
+    .await
+    .map_err(ApiError::db)
+}
+
+fn is_unique_violation(error: &sqlx::Error) -> bool {
+    matches!(
+        error,
+        sqlx::Error::Database(database_error)
+            if database_error.code().as_deref() == Some("23505")
+    )
 }
 
 fn response_from_idempotency_record(record: IdempotencyRecord) -> Response {
