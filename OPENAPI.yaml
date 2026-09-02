@@ -1,0 +1,131 @@
+openapi: 3.0.3
+info:
+  title: Invoice & Payment Service
+  version: 0.1.0
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code: {type: string}
+            message: {type: string}
+            request_id: {type: string, format: uuid}
+    Customer:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        email: {type: string, format: email}
+        created_at: {type: string, format: date-time}
+    LineItem:
+      type: object
+      required: [description, quantity, unit_amount_cents]
+      properties:
+        id: {type: string, format: uuid}
+        description: {type: string}
+        quantity: {type: integer, minimum: 1}
+        unit_amount_cents: {type: integer, minimum: 0}
+        line_total_cents: {type: integer, minimum: 0}
+    Invoice:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        customer_id: {type: string, format: uuid}
+        status: {type: string, enum: [open, paid]}
+        currency: {type: string, enum: [USD]}
+        total_cents: {type: integer, minimum: 0}
+        due_date: {type: string, format: date}
+        created_at: {type: string, format: date-time}
+        line_items: {type: array, items: {$ref: '#/components/schemas/LineItem'}}
+        payment_attempts: {type: array, items: {type: object}}
+    PayRequest:
+      type: object
+      required: [card_token]
+      properties:
+        card_token: {type: string, example: tok_success}
+    PaymentResponse:
+      type: object
+      properties:
+        invoice_id: {type: string, format: uuid}
+        payment_attempt_id: {type: string, format: uuid}
+        payment_status: {type: string, enum: [succeeded, failed]}
+        invoice_status: {type: string, enum: [open, paid]}
+        psp_ref: {type: string, nullable: true}
+        failure_code: {type: string, nullable: true}
+paths:
+  /health:
+    get:
+      security: []
+      responses: {'200': {description: Healthy}}
+  /customers:
+    post:
+      summary: Create a customer
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [name, email], properties: {name: {type: string}, email: {type: string}}}}}
+      responses: {'201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Customer'}}}}, '401': {description: Unauthorized, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}}
+    get:
+      summary: List customers
+      responses: {'200': {description: Customers}}
+  /customers/{id}:
+    get:
+      summary: Get a customer
+      parameters: [{in: path, name: id, required: true, schema: {type: string, format: uuid}}]
+      responses: {'200': {description: Customer}, '404': {description: Not found}}
+  /invoices:
+    post:
+      summary: Create an invoice; total is calculated by the server
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [customer_id, due_date, line_items], properties: {customer_id: {type: string, format: uuid}, due_date: {type: string, format: date}, line_items: {type: array, items: {$ref: '#/components/schemas/LineItem'}}}}}}
+      responses: {'201': {description: Invoice}, '422': {description: Validation error}}
+    get:
+      summary: List invoices
+      parameters: [{in: query, name: status, required: false, schema: {type: string, enum: [open, paid]}}]
+      responses: {'200': {description: Invoices}}
+  /invoices/{id}:
+    get:
+      summary: Get an invoice with line items and payment attempts
+      parameters: [{in: path, name: id, required: true, schema: {type: string, format: uuid}}]
+      responses: {'200': {description: Invoice}, '404': {description: Not found}}
+  /invoices/{id}/pay:
+    post:
+      summary: Attempt payment through the mock PSP
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+        - {in: header, name: Idempotency-Key, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/PayRequest'}}}
+      responses:
+        '200': {description: Payment succeeded, content: {application/json: {schema: {$ref: '#/components/schemas/PaymentResponse'}}}}
+        '202': {description: PSP result pending}
+        '402': {description: Payment failed}
+        '409': {description: Conflict or idempotency-key reuse}
+  /webhook-endpoints:
+    post:
+      summary: Register a signed webhook endpoint
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [url], properties: {url: {type: string, format: uri}}}}}
+      responses: {'201': {description: Created; signing secret is returned once}}
+    get:
+      summary: List registered webhook endpoints
+      responses: {'200': {description: Endpoints}}
+  /webhook-events:
+    get:
+      summary: Inspect event and delivery status for reconciliation
+      responses: {'200': {description: Events}}
