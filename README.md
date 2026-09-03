@@ -20,6 +20,25 @@ dodo_test_dev_secret_change_me
 
 Use it as `Authorization: Bearer <key>`. All money values are integer cents.
 
+## Postman collection
+
+An import-ready collection is available at
+[`postman/DodoPayments.postman_collection.json`](postman/DodoPayments.postman_collection.json).
+It contains the complete 13-request demo flow for health, webhook registration,
+customer and invoice creation, successful and declined payments, idempotent
+replay, webhook event inspection, and timeout recovery.
+
+After importing it into Postman:
+
+1. Start the stack with `docker compose up -d`.
+2. Replace the collection's `webhook_url` variable with a temporary
+   [webhook.site](https://webhook.site/) URL if you want to observe delivery.
+3. Run the requests in numeric order. Response scripts automatically save the
+   customer and invoice IDs and generate fresh idempotency keys.
+4. Send request 6 twice to demonstrate idempotent replay. For timeout recovery,
+   send request 13 immediately after request 12 and again after about 30–35
+   seconds.
+
 ## Code structure
 
 The application follows a small REST-friendly MVC layout:
@@ -122,6 +141,7 @@ PSP call, cross-invoice key races, and PSP timeout reconciliation.
 
 ## Demo Video
 
-Add the shareable Loom/QuickTime/Drive link here before submitting. The video
-should cover architecture, a live Compose demo, the state machine, and one
-failure mode as requested in the assignment.
+The complete architecture, API, state-machine, idempotency, webhook, and PSP
+timeout-recovery walkthrough is available here:
+
+[Dodo Payments Assignment Solution](https://www.youtube.com/watch?v=u5dBB36_GB8)

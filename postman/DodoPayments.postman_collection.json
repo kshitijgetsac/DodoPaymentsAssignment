@@ -1,0 +1,477 @@
+{
+  "info": {
+    "_postman_id": "94438e9f-7d96-41a0-9bdd-039c376b1e9d",
+    "name": "Dodo Payments Demo",
+    "description": "Import this collection, start the stack with `docker compose up -d`, update `webhook_url` if webhook delivery should be demonstrated, and run the requests in numeric order. IDs and fresh idempotency keys are captured automatically.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - Health",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"API is healthy\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    pm.expect(pm.response.json().status).to.eql(\"ok\");",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/health",
+          "host": ["{{base_url}}"],
+          "path": ["health"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "02 - Register Webhook",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Webhook endpoint created\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "if (pm.response.code === 201) {",
+              "    const response = pm.response.json();",
+              "    pm.collectionVariables.set(\"webhook_endpoint_id\", response.id);",
+              "    pm.collectionVariables.set(\"webhook_secret\", response.secret);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"url\": \"{{webhook_url}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/webhook-endpoints",
+          "host": ["{{base_url}}"],
+          "path": ["webhook-endpoints"]
+        },
+        "description": "Replace the webhook_url collection variable with a temporary webhook.site URL to observe deliveries."
+      },
+      "response": []
+    },
+    {
+      "name": "03 - Create Customer",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Customer created\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "if (pm.response.code === 201) {",
+              "    pm.collectionVariables.set(\"customer_id\", pm.response.json().id);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Video Demo Customer\",\n  \"email\": \"video-demo@example.com\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/customers",
+          "host": ["{{base_url}}"],
+          "path": ["customers"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "04 - Create Success Invoice",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Success invoice created with server-calculated total\", function () {",
+              "    pm.response.to.have.status(201);",
+              "    pm.expect(pm.response.json().total_cents).to.eql(102000);",
+              "});",
+              "if (pm.response.code === 201) {",
+              "    pm.collectionVariables.set(\"success_invoice_id\", pm.response.json().id);",
+              "    pm.collectionVariables.set(\"success_idempotency_key\", pm.variables.replaceIn(\"{{$guid}}\"));",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"due_date\": \"2030-01-31\",\n  \"line_items\": [\n    {\n      \"description\": \"Backend development\",\n      \"quantity\": 2,\n      \"unit_amount_cents\": 50000\n    },\n    {\n      \"description\": \"Hosting\",\n      \"quantity\": 1,\n      \"unit_amount_cents\": 2000\n    }\n  ]\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/invoices",
+          "host": ["{{base_url}}"],
+          "path": ["invoices"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "05 - Create Failure Invoice",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Failure-demo invoice created\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "if (pm.response.code === 201) {",
+              "    pm.collectionVariables.set(\"failure_invoice_id\", pm.response.json().id);",
+              "    pm.collectionVariables.set(\"failure_idempotency_key\", pm.variables.replaceIn(\"{{$guid}}\"));",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"due_date\": \"2030-01-31\",\n  \"line_items\": [\n    {\n      \"description\": \"Declined payment demonstration\",\n      \"quantity\": 1,\n      \"unit_amount_cents\": 25000\n    }\n  ]\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/invoices",
+          "host": ["{{base_url}}"],
+          "path": ["invoices"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "06 - Pay Successfully",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Payment succeeds and invoice becomes paid\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    const response = pm.response.json();",
+              "    pm.expect(response.payment_status).to.eql(\"succeeded\");",
+              "    pm.expect(response.invoice_status).to.eql(\"paid\");",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json", "type": "text" },
+          { "key": "Idempotency-Key", "value": "{{success_idempotency_key}}", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"card_token\": \"tok_success\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/invoices/{{success_invoice_id}}/pay",
+          "host": ["{{base_url}}"],
+          "path": ["invoices", "{{success_invoice_id}}", "pay"]
+        },
+        "description": "Send this request twice without recreating the invoice to demonstrate exact idempotent replay."
+      },
+      "response": []
+    },
+    {
+      "name": "07 - Get Successful Invoice",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Invoice is paid with one successful attempt\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    const response = pm.response.json();",
+              "    pm.expect(response.status).to.eql(\"paid\");",
+              "    pm.expect(response.payment_attempts.length).to.eql(1);",
+              "    pm.expect(response.payment_attempts[0].status).to.eql(\"succeeded\");",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/invoices/{{success_invoice_id}}",
+          "host": ["{{base_url}}"],
+          "path": ["invoices", "{{success_invoice_id}}"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "08 - Pay With Declined Card",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Decline is recorded without closing the invoice\", function () {",
+              "    pm.response.to.have.status(402);",
+              "    const response = pm.response.json();",
+              "    pm.expect(response.payment_status).to.eql(\"failed\");",
+              "    pm.expect(response.invoice_status).to.eql(\"open\");",
+              "    pm.expect(response.failure_code).to.eql(\"card_declined\");",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json", "type": "text" },
+          { "key": "Idempotency-Key", "value": "{{failure_idempotency_key}}", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"card_token\": \"tok_card_declined\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/invoices/{{failure_invoice_id}}/pay",
+          "host": ["{{base_url}}"],
+          "path": ["invoices", "{{failure_invoice_id}}", "pay"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "09 - Get Failure Invoice",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Invoice remains open and attempt is failed\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    const response = pm.response.json();",
+              "    pm.expect(response.status).to.eql(\"open\");",
+              "    pm.expect(response.payment_attempts[0].status).to.eql(\"failed\");",
+              "    pm.expect(response.payment_attempts[0].failure_code).to.eql(\"card_declined\");",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/invoices/{{failure_invoice_id}}",
+          "host": ["{{base_url}}"],
+          "path": ["invoices", "{{failure_invoice_id}}"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "10 - List Webhook Events",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Webhook event history is returned\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    pm.expect(pm.response.json()).to.be.an(\"array\");",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/webhook-events",
+          "host": ["{{base_url}}"],
+          "path": ["webhook-events"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "11 - Create Timeout Invoice",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Timeout-demo invoice created\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "if (pm.response.code === 201) {",
+              "    pm.collectionVariables.set(\"timeout_invoice_id\", pm.response.json().id);",
+              "    pm.collectionVariables.set(\"timeout_idempotency_key\", pm.variables.replaceIn(\"{{$guid}}\"));",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"due_date\": \"2030-01-31\",\n  \"line_items\": [\n    {\n      \"description\": \"Timeout recovery demonstration\",\n      \"quantity\": 1,\n      \"unit_amount_cents\": 30000\n    }\n  ]\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/invoices",
+          "host": ["{{base_url}}"],
+          "path": ["invoices"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "12 - Pay With Timeout",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Initial timeout is accepted for asynchronous recovery\", function () {",
+              "    pm.expect([202, 200]).to.include(pm.response.code);",
+              "});",
+              "if (pm.response.code === 202) {",
+              "    pm.expect(pm.response.json().status).to.eql(\"processing\");",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json", "type": "text" },
+          { "key": "Idempotency-Key", "value": "{{timeout_idempotency_key}}", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"card_token\": \"tok_timeout\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/invoices/{{timeout_invoice_id}}/pay",
+          "host": ["{{base_url}}"],
+          "path": ["invoices", "{{timeout_invoice_id}}", "pay"]
+        },
+        "description": "The first send returns 202 after roughly two seconds. Repeat after recovery with the same key to receive the stored 200 response without another charge."
+      },
+      "response": []
+    },
+    {
+      "name": "13 - Get Timeout Invoice",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Invoice shows a safe pending or reconciled state\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    const response = pm.response.json();",
+              "    pm.expect([\"open\", \"paid\"]).to.include(response.status);",
+              "    pm.expect(response.payment_attempts.length).to.eql(1);",
+              "    pm.expect([\"pending\", \"succeeded\"]).to.include(response.payment_attempts[0].status);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/invoices/{{timeout_invoice_id}}",
+          "host": ["{{base_url}}"],
+          "path": ["invoices", "{{timeout_invoice_id}}"]
+        },
+        "description": "Send immediately to see open/pending, then send again after about 30–35 seconds to see paid/succeeded."
+      },
+      "response": []
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{api_key}}", "type": "string" }
+    ]
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8080", "type": "string" },
+    { "key": "api_key", "value": "dodo_test_dev_secret_change_me", "type": "string" },
+    { "key": "webhook_url", "value": "https://webhook.site/replace-with-your-id", "type": "string" },
+    { "key": "customer_id", "value": "", "type": "string" },
+    { "key": "success_invoice_id", "value": "", "type": "string" },
+    { "key": "failure_invoice_id", "value": "", "type": "string" },
+    { "key": "timeout_invoice_id", "value": "", "type": "string" },
+    { "key": "success_idempotency_key", "value": "video-success-1", "type": "string" },
+    { "key": "failure_idempotency_key", "value": "video-decline-1", "type": "string" },
+    { "key": "timeout_idempotency_key", "value": "video-timeout-1", "type": "string" },
+    { "key": "webhook_endpoint_id", "value": "", "type": "string" },
+    { "key": "webhook_secret", "value": "", "type": "string" }
+  ]
+}
